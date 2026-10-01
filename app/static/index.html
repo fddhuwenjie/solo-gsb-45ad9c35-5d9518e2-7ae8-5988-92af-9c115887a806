@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>条款引用重排台</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">§</span>
+      <div>
+        <h1>条款引用重排台</h1>
+        <p class="subtitle">粘贴带层级编号的合同条款 → 拖动重排 → 引用自动重编号</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="btn-example" class="btn btn-ghost" type="button">载入示例</button>
+      <div class="draft-group">
+        <select id="draft-select" title="选择草稿">
+          <option value="">— 已保存草稿 —</option>
+        </select>
+        <button id="btn-save" class="btn" type="button">保存草稿</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 输入区 -->
+    <section class="panel input-panel">
+      <div class="panel-head">
+        <h2>① 粘贴合同文本</h2>
+        <div class="hint">支持「第3.2条」「第3.2.1条」「第五条」及「1.2」层级编号；支持「第5条至第7条」区间引用</div>
+      </div>
+      <textarea id="contract-input" spellcheck="false"
+        placeholder="在此粘贴合同条款，例如：&#10;第1条 定义&#10;本协议所称……&#10;第2条 服务内容&#10;乙方应按第1条约定……"></textarea>
+      <div class="input-foot">
+        <button id="btn-parse" class="btn btn-primary" type="button">解析并重排</button>
+        <span id="parse-status" class="parse-status"></span>
+      </div>
+    </section>
+
+    <!-- 工作区（解析后显示） -->
+    <section id="workspace" class="workspace hidden">
+      <div class="mode-tabs" role="tablist">
+        <button id="tab-refs" class="mode-tab active" type="button" role="tab">§ 引用重排 / 改写</button>
+        <button id="tab-terms" class="mode-tab" type="button" role="tab">📖 定义术语审校</button>
+      </div>
+
+      <!-- 模式一：引用重排 -->
+      <div id="pane-refs" class="mode-pane">
+      <div class="panel order-panel">
+        <div class="panel-head">
+          <h2>② 按层级拖动调整顺序</h2>
+          <div class="hint">仅同一父级下的兄弟可换序；拖动父条款会连同整棵子树一起移动，删除父条款一并删除子条款</div>
+        </div>
+        <div id="issues-bar" class="issues-bar hidden"></div>
+        <div id="preview-bar" class="preview-bar">
+          <button id="btn-preview" class="btn btn-primary btn-sm" type="button" disabled>
+            🔍 删除影响预演（已选 <span id="preview-count">0</span> 项）
+          </button>
+          <span class="hint">勾选下方未删除条款的复选框后先预演：父条款按现有规则连同后代纳入拟删除集；预演只预览、不改草稿</span>
+        </div>
+        <ul id="sortable" class="sortable"></ul>
+        <div id="tray" class="tray hidden">
+          <div class="tray-head">已删除（点击恢复）</div>
+          <div id="tray-list" class="tray-list"></div>
+        </div>
+
+        <div id="preview-pane" class="preview-pane hidden">
+          <div class="panel-head">
+            <h2>🔍 删除影响预演（预览中，草稿未修改）</h2>
+          </div>
+          <div id="preview-stale" class="preview-stale hidden">
+            ⚠ 正文、排序或删除状态已变化，本预演结果已过期，不能直接确认；
+            <button id="btn-repreview" class="btn btn-sm" type="button">按当前选择重新预演</button>
+          </div>
+          <div id="preview-summary" class="preview-summary"></div>
+          <div class="preview-section">
+            <div class="preview-section-title">拟删除集（含父条款级联的后代）</div>
+            <div id="preview-delete" class="preview-chips"></div>
+          </div>
+          <div class="preview-section">
+            <div class="preview-section-title">删除后仍存活、但绑定受影响的条款（循环条款按强连通分量合并为一项；组成员与根因均可点击定位，↺ 表示引用循环）</div>
+            <div id="preview-impacts" class="preview-impacts"></div>
+          </div>
+          <div class="preview-actions">
+            <button id="btn-confirm-delete" class="btn btn-danger" type="button">确认删除（一次性套用级联删除并重排 / 改写 / 术语审校）</button>
+            <button id="btn-cancel-preview" class="btn btn-ghost" type="button">取消（草稿不变）</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel compare-panel">
+        <div class="panel-head">
+          <h2>③ 改动前后对照</h2>
+          <div class="legend">
+            <span class="lg lg-ok">已重写</span>
+            <span class="lg lg-unparsable">无法解析</span>
+            <span class="lg lg-deleted">目标已删除</span>
+            <span class="lg lg-circular">循环引用</span>
+          </div>
+        </div>
+        <div class="compare-cols">
+          <div class="col">
+            <div class="col-title">改动前（原文）</div>
+            <div id="before-view" class="doc-view"></div>
+          </div>
+          <div class="col">
+            <div class="col-title">改动后（新编号）</div>
+            <div id="after-view" class="doc-view"></div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- 模式二：定义术语审校 -->
+      <div id="pane-terms" class="mode-pane hidden">
+      <div class="panel terms-side">
+        <div class="panel-head">
+          <h2>术语问题</h2>
+          <div class="hint">点击条目可定位正文；「忽略」随草稿保存，可在下方恢复</div>
+        </div>
+        <div id="term-issues" class="term-issues"></div>
+        <div class="panel-head term-subhead"><h2>已定义术语</h2></div>
+        <div id="term-defs" class="term-defs"></div>
+        <div id="term-ignored" class="term-ignored hidden">
+          <div class="tray-head">已忽略（点击恢复）</div>
+          <div id="term-ignored-list" class="tray-list"></div>
+        </div>
+      </div>
+
+      <div class="panel terms-main">
+        <div class="panel-head">
+          <h2>术语标注（当前删除状态）</h2>
+          <div class="legend">
+            <span class="lg lg-t-def">定义</span>
+            <span class="lg lg-t-use">使用·已绑定</span>
+            <span class="lg lg-unparsable">未定义</span>
+            <span class="lg lg-deleted">重复定义</span>
+            <span class="lg lg-circular">歧义绑定</span>
+            <span class="lg lg-unused">未使用</span>
+          </div>
+        </div>
+        <div id="terms-view" class="doc-view"></div>
+      </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

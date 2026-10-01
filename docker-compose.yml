@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    container_name: clause-rebench
+    ports:
+      - "8000:8000"
+    volumes:
+      - clause-data:/data
+    restart: unless-stopped
+
+volumes:
+  clause-data:

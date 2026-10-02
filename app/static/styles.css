@@ -471,3 +471,95 @@ textarea:focus { outline: none; border-color: var(--primary); }
   display: flex; gap: 10px; margin-top: 12px;
   padding-top: 10px; border-top: 1px dashed var(--border);
 }
+
+/* ---------------- 生效版本签发 ---------------- */
+.issue-actions {
+  display: flex; align-items: center; gap: 14px; margin: 4px 2px 12px;
+}
+.issue-revision { color: var(--muted); font-size: 12.5px; }
+
+.issue-success {
+  border: 1px solid var(--ok); background: var(--ok-bg);
+  color: var(--ok); border-radius: 8px; padding: 10px 14px;
+  font-size: 13px; margin: 10px 0;
+}
+.issue-blockers {
+  border: 1px solid var(--danger); background: var(--danger-bg);
+  border-radius: 8px; padding: 12px 14px; margin: 10px 0;
+}
+.issue-blockers-head {
+  color: var(--danger); font-weight: 600; font-size: 13.5px; margin-bottom: 8px;
+}
+.issue-blocker-title {
+  font-size: 12.5px; color: var(--muted); margin: 10px 0 6px;
+}
+.issue-blocker-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  text-align: left; background: rgba(255,255,255,.03);
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 7px 10px; margin-bottom: 6px; cursor: pointer;
+  color: var(--text); font-size: 12.5px; transition: .15s;
+}
+.issue-blocker-row:hover { border-color: var(--primary); background: rgba(79,124,255,.10); }
+.issue-blocker-row .chip-msg { flex: 1; }
+.issue-blocker-row .chip-goto { color: var(--primary); font-size: 12px; flex-shrink: 0; }
+
+.version-list { display: flex; flex-direction: column; gap: 8px; }
+.version-empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+.version-row {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px; cursor: pointer;
+  color: var(--text); text-align: left; transition: .15s;
+}
+.version-row:hover, .version-row.active {
+  border-color: var(--primary); background: rgba(79,124,255,.10);
+}
+.version-no {
+  font-size: 15px; font-weight: 700; color: var(--primary);
+  background: var(--primary-dim); border-radius: 6px;
+  padding: 3px 9px; flex-shrink: 0;
+}
+.version-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.version-time { font-size: 12px; color: var(--muted); }
+.version-stats { font-size: 12.5px; color: var(--text); }
+.version-open { color: var(--primary); font-size: 12.5px; flex-shrink: 0; }
+
+.version-viewer { margin-top: 14px; }
+.vv-head { flex-direction: column; align-items: flex-start; gap: 4px; }
+.vv-section { margin: 12px 0; }
+.vv-section-title {
+  font-size: 12.5px; color: var(--muted); margin: 8px 2px;
+}
+.vv-binding-list {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 240px; overflow-y: auto; margin-bottom: 10px;
+}
+.vv-binding-row {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,.03); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 10px; cursor: pointer;
+  color: var(--text); font-size: 12.5px; text-align: left; transition: .15s;
+}
+.vv-binding-row:hover { border-color: var(--primary); background: rgba(79,124,255,.10); }
+.vv-binding-row .vv-bw {
+  color: var(--primary); font-weight: 600; flex-shrink: 0; min-width: 72px;
+}
+.vv-binding-row .vv-bt { flex: 1; }
+.vv-binding-row .chip-goto { color: var(--primary); font-size: 12px; flex-shrink: 0; }
+.vv-ignored {
+  font-size: 12px; color: var(--warn);
+  background: var(--warn-bg); border-radius: 7px;
+  padding: 7px 10px; margin: 6px 0;
+}
+.vv-term-view { margin-top: 8px; }
+
+/* 版本查看器中的术语标记（与编辑区 tmark 同色，独立类名避免串扰） */
+.vtmark { border-radius: 3px; padding: 0 2px; cursor: pointer; }
+.vtmark.def { background: rgba(79,195,216,.22); border-bottom: 1px solid var(--cyan); }
+.vtmark.use.ok { background: rgba(56,192,138,.16); border-bottom: 1px solid var(--ok); }
+.vtmark.use.undefined { background: rgba(240,169,59,.22); border-bottom: 1px solid var(--warn); }
+.vtmark.use.ambiguous { background: rgba(181,131,240,.22); border-bottom: 1px solid var(--purple); }
+.vtmark.flash-pair {
+  outline: 2px solid var(--flash); background: rgba(255,243,196,.25);
+}

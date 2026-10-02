@@ -46,6 +46,7 @@
       <div class="mode-tabs" role="tablist">
         <button id="tab-refs" class="mode-tab active" type="button" role="tab">§ 引用重排 / 改写</button>
         <button id="tab-terms" class="mode-tab" type="button" role="tab">📖 定义术语审校</button>
+        <button id="tab-versions" class="mode-tab" type="button" role="tab">🔖 生效版本</button>
       </div>
 
       <!-- 模式一：引用重排 -->
@@ -145,6 +146,32 @@
         </div>
         <div id="terms-view" class="doc-view"></div>
       </div>
+      </div>
+
+      <!-- 模式三：生效版本签发 -->
+      <div id="pane-versions" class="mode-pane hidden">
+        <div class="panel issue-panel">
+          <div class="panel-head">
+            <h2>生效版本签发</h2>
+            <div class="hint">签发将一次性固定正文、顺序、删除状态与术语忽略项，重跑引用与术语终审；存在未解决问题或草稿在签发期间被修改都会被拒绝，且不改动草稿</div>
+          </div>
+          <div id="issue-actions" class="issue-actions">
+            <button id="btn-issue" class="btn btn-primary" type="button">🔖 从当前草稿签发生效版本</button>
+            <span id="issue-revision" class="issue-revision"></span>
+          </div>
+          <div id="issue-blockers" class="issue-blockers hidden"></div>
+          <div id="issue-success" class="issue-success hidden"></div>
+        </div>
+
+        <div class="panel versions-panel">
+          <div class="panel-head">
+            <h2>已签发版本（不可变）</h2>
+            <div class="hint">后续编辑只产生新版本，不会覆盖已签发版本；重复提交同一份草稿返回原版本。点击版本查看并定位签发时的正文、编号、引用改写与术语绑定</div>
+          </div>
+          <div id="version-list" class="version-list"></div>
+        </div>
+
+        <div id="version-viewer" class="panel version-viewer hidden"></div>
       </div>
     </section>
   </main>

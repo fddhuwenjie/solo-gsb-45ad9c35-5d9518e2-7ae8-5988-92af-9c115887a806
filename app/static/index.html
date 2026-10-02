@@ -46,6 +46,7 @@
       <div class="mode-tabs" role="tablist">
         <button id="tab-refs" class="mode-tab active" type="button" role="tab">§ 引用重排 / 改写</button>
         <button id="tab-terms" class="mode-tab" type="button" role="tab">📖 定义术语审校</button>
+        <button id="tab-versions" class="mode-tab" type="button" role="tab">🏛 生效版本</button>
       </div>
 
       <!-- 模式一：引用重排 -->
@@ -144,6 +145,37 @@
           </div>
         </div>
         <div id="terms-view" class="doc-view"></div>
+      </div>
+      </div>
+
+      <!-- 模式三：生效版本 -->
+      <div id="pane-versions" class="mode-pane hidden">
+      <div class="panel version-side">
+        <div class="panel-head">
+          <h2>生效版本签发</h2>
+          <div class="hint">签发会在同一操作中固定正文、顺序、删除状态与术语忽略项，重新运行引用与术语审校；校验通过后生成不可变版本，后续编辑不会覆盖它</div>
+        </div>
+        <div id="version-issue-box"></div>
+        <div class="panel-head term-subhead"><h2>已签发版本</h2></div>
+        <div id="version-list" class="version-list"></div>
+      </div>
+
+      <div class="panel version-main">
+        <div id="version-viewer-empty" class="version-empty">
+          ← 从左侧选择一个生效版本查看；点击正文中的引用 / 术语标记可定位对应条款
+        </div>
+        <div id="version-viewer" class="hidden">
+          <div class="panel-head version-viewer-head">
+            <h2 id="version-viewer-title"></h2>
+            <div class="version-viewer-tabs">
+              <button id="vtab-final" class="btn btn-sm active" type="button">生效正文（新编号）</button>
+              <button id="vtab-original" class="btn btn-sm" type="button">签发时原文</button>
+              <button id="vtab-terms" class="btn btn-sm" type="button">📖 术语绑定</button>
+            </div>
+          </div>
+          <div id="version-summary" class="version-summary"></div>
+          <div id="version-view" class="doc-view"></div>
+        </div>
       </div>
       </div>
     </section>

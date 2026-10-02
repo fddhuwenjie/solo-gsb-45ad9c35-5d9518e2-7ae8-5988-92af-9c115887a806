@@ -38,6 +38,18 @@ const els = {
   previewImpacts: $("#preview-impacts"),
   btnConfirmDelete: $("#btn-confirm-delete"),
   btnCancelPreview: $("#btn-cancel-preview"),
+  tabVersions: $("#tab-versions"),
+  paneVersions: $("#pane-versions"),
+  versionIssueBox: $("#version-issue-box"),
+  versionList: $("#version-list"),
+  viewerEmpty: $("#version-viewer-empty"),
+  viewer: $("#version-viewer"),
+  viewerTitle: $("#version-viewer-title"),
+  viewerSummary: $("#version-summary"),
+  versionView: $("#version-view"),
+  vtabFinal: $("#vtab-final"),
+  vtabOriginal: $("#vtab-original"),
+  vtabTerms: $("#vtab-terms"),
 };
 
 // 运行时状态
@@ -58,6 +70,14 @@ const state = {
   previewResult: null,  // 最近一次预演响应
   previewStale: false,  // 正文/排序/删除变化后旧结果过期，不可确认
   previewBusy: false,
+  // 生效版本
+  draftRevision: null,      // 当前已保存草稿的修订号（保存/载入后更新）
+  draftTitle: null,         // 当前已保存草稿标题
+  savedSnapshot: null,      // 与已保存状态对应的 {text, order, deleted, ignores}
+  versions: [],             // 当前草稿的已签发版本列表
+  currentVersion: null,     // 正在查看的版本详情
+  versionViewMode: "final", // final | original | terms
+  versionBusy: false,
 };
 
 const LS_KEY = "clause-rebench-session";
@@ -91,8 +111,15 @@ async function api(path, options = {}) {
   });
   if (!res.ok) {
     let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch (_) {}
-    throw new Error(detail);
+    let payload = null;
+    try {
+      payload = await res.json();
+      detail = (payload.detail && payload.detail.message) || payload.detail || detail;
+    } catch (_) {}
+    const err = new Error(typeof detail === "string" ? detail : res.statusText);
+    err.status = res.status;
+    err.payload = payload; // 保留结构化 detail（如签发 blockers）
+    throw err;
   }
   return res.json();
 }
@@ -455,6 +482,7 @@ function attachDropZone(li, targetCid, virtualKey = null) {
     }
     if (state.previewResult) invalidatePreview();
     scheduleAnalyze();
+    if (state.mode === "versions") renderIssueBox();
   });
 }
 
@@ -478,7 +506,7 @@ function deleteClause(cid) {
       state.deleted.push(x.id);
     }
   });
-  runAnalyze().catch(() => {});
+  runAnalyze().then(() => { if (state.mode === "versions") renderIssueBox(); }).catch(() => {});
 }
 
 function restoreClause(cid) {
@@ -496,7 +524,7 @@ function restoreClause(cid) {
     }
   });
   // 交给后端按解析顺序把恢复的子树归位
-  runAnalyze().catch(() => {});
+  runAnalyze().then(() => { if (state.mode === "versions") renderIssueBox(); }).catch(() => {});
 }
 
 // ---------------------------------------------------------------- 删除影响预演
@@ -1135,6 +1163,7 @@ function ignoreTerm(occId) {
   if (!state.termIgnores.includes(occId)) state.termIgnores.push(occId);
   saveSession();
   renderTerms();
+  if (state.mode === "versions") renderIssueBox();
   toast("已忽略该问题（保存草稿后随草稿保留）");
 }
 
@@ -1142,17 +1171,24 @@ function unignoreTerm(occId) {
   state.termIgnores = state.termIgnores.filter((x) => x !== occId);
   saveSession();
   renderTerms();
+  if (state.mode === "versions") renderIssueBox();
 }
 
 async function switchMode(mode) {
   state.mode = mode;
   els.tabRefs.classList.toggle("active", mode === "refs");
   els.tabTerms.classList.toggle("active", mode === "terms");
+  els.tabVersions.classList.toggle("active", mode === "versions");
   els.paneRefs.classList.toggle("hidden", mode !== "refs");
   els.paneTerms.classList.toggle("hidden", mode !== "terms");
+  els.paneVersions.classList.toggle("hidden", mode !== "versions");
   if (mode === "terms") {
     if (!state.terms) await fetchTerms();
     if (state.terms) renderTerms();
+  } else if (mode === "versions") {
+    renderIssueBox();
+    refreshVersions();
+    if (state.currentVersion) renderVersionViewer();
   }
 }
 
@@ -1190,25 +1226,48 @@ async function saveDraft() {
   };
   try {
     if (state.currentDraftId) {
-      await api(`/api/drafts/${state.currentDraftId}`, {
+      const r = await api(`/api/drafts/${state.currentDraftId}`, {
         method: "PUT", body: JSON.stringify(payload),
       });
+      state.draftRevision = r.revision;
     } else {
       const r = await api("/api/drafts", {
         method: "POST", body: JSON.stringify(payload),
       });
       state.currentDraftId = r.id;
+      state.draftRevision = r.revision;
     }
+    state.draftTitle = title;
+    state.savedSnapshot = currentSnapshot();
     toast("草稿已保存");
     refreshDrafts(state.currentDraftId);
+    renderIssueBox();
+    refreshVersions();
   } catch (e) {
     toast("保存失败：" + e.message);
   }
 }
 
+function currentSnapshot() {
+  return JSON.stringify({
+    text: els.input.value,
+    order: state.order.slice(),
+    deleted: state.deleted.slice(),
+    term_ignores: state.termIgnores.slice(),
+  });
+}
+
+// 编辑器相对已保存草稿是否有未保存修改（正文 / 顺序 / 删除 / 忽略项）
+function isDraftDirty() {
+  if (!state.currentDraftId) return true;
+  return !state.savedSnapshot || state.savedSnapshot !== currentSnapshot();
+}
+
 async function loadDraft(id) {
   const d = await api(`/api/drafts/${id}`);
   state.currentDraftId = d.id;
+  state.draftRevision = d.revision;
+  state.draftTitle = d.title;
   els.input.value = d.content;
   state.order = d.order;
   state.deleted = d.deleted;
@@ -1218,6 +1277,10 @@ async function loadDraft(id) {
   state.previewStale = false;
   els.previewPane.classList.add("hidden");
   await runAnalyze(true);
+  state.savedSnapshot = currentSnapshot();
+  state.currentVersion = null;
+  renderIssueBox();
+  refreshVersions();
   toast(`已载入草稿：${d.title}`);
 }
 
@@ -1300,14 +1363,400 @@ function loadExample() {
   state.deleted = [];
   state.termIgnores = [];
   state.currentDraftId = null;
+  state.draftRevision = null;
+  state.draftTitle = null;
+  state.savedSnapshot = null;
+  state.currentVersion = null;
   state.previewSel = [];
   state.previewResult = null;
   state.previewStale = false;
   els.previewPane.classList.add("hidden");
   els.draftSelect.value = "";
   runAnalyze(true).then(() => {
+    renderIssueBox();
+    refreshVersions();
     toast("示例已载入：可切换到「定义术语审校」查看未定义/未使用等问题；试删第3条观察局部定义随删除失效");
   }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- 生效版本签发
+
+async function refreshVersions(selectVersionId) {
+  try {
+    const q = state.currentDraftId ? `?draft_id=${state.currentDraftId}` : "";
+    state.versions = await api("/api/versions" + q);
+  } catch (_) {
+    state.versions = [];
+  }
+  renderVersionList(selectVersionId);
+}
+
+function renderIssueBox() {
+  const box = els.versionIssueBox;
+  box.innerHTML = "";
+
+  if (!state.currentDraftId) {
+    box.innerHTML =
+      `<div class="issue-note">请先在顶栏「保存草稿」，再从草稿发起生效版本签发。</div>`;
+    return;
+  }
+
+  const dirty = isDraftDirty();
+  const rev = state.draftRevision;
+  const head = document.createElement("div");
+  head.className = "issue-head";
+  head.innerHTML =
+    `<span class="issue-draft-title">${esc(state.draftTitle || "当前草稿")}</span>` +
+    `<span class="issue-rev">修订号 r${rev == null ? "?" : rev}</span>`;
+  box.appendChild(head);
+
+  if (dirty) {
+    const note = document.createElement("div");
+    note.className = "issue-note warn";
+    note.textContent = "当前编辑与已保存草稿不一致：签发会先把最新正文 / 顺序 / 删除 / 忽略项保存到草稿（修订号 +1）。";
+    box.appendChild(note);
+  } else {
+    const note = document.createElement("div");
+    note.className = "issue-note ok";
+    note.textContent = "编辑内容与已保存草稿一致；签发固定当前草稿快照，不会改动草稿。";
+    box.appendChild(note);
+  }
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn-primary btn-issue";
+  btn.disabled = state.versionBusy || !state.data;
+  btn.textContent = state.versionBusy ? "校验 / 签发中…" : "🏛 签发生效版本";
+  btn.addEventListener("click", issueVersion);
+  box.appendChild(btn);
+
+  const tip = document.createElement("div");
+  tip.className = "issue-tip";
+  tip.textContent = "存在无法解析、目标已删除、循环引用或未忽略的术语问题时将拒绝签发，且不改动草稿；同一内容重复签发返回原版本。";
+  box.appendChild(tip);
+}
+
+async function ensureSavedBeforeIssue() {
+  // 签发必须基于已保存草稿：有未保存修改时先复用现有保存路径（修订号 +1）
+  if (!isDraftDirty()) return true;
+  const text = els.input.value;
+  if (!text.trim()) {
+    toast("请先粘贴并解析合同文本");
+    return false;
+  }
+  const opt = [...els.draftSelect.options]
+    .find((o) => o.value === String(state.currentDraftId));
+  const title = state.draftTitle || (opt ? opt.textContent : "合同草稿");
+  await api(`/api/drafts/${state.currentDraftId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      title, content: text, order: state.order, deleted: state.deleted,
+      term_ignores: state.termIgnores,
+    }),
+  }).then((r) => {
+    state.draftRevision = r.revision;
+    state.draftTitle = title;
+    state.savedSnapshot = currentSnapshot();
+  });
+  await refreshDrafts(state.currentDraftId);
+  return true;
+}
+
+async function issueVersion() {
+  if (!state.currentDraftId || state.versionBusy) return;
+  state.versionBusy = true;
+  renderIssueBox();
+  try {
+    await ensureSavedBeforeIssue();
+    const revision = state.draftRevision;
+    const v = await api(`/api/drafts/${state.currentDraftId}/versions`, {
+      method: "POST",
+      body: JSON.stringify({ expected_revision: revision }),
+    });
+    toast(v.reused
+      ? `该内容已签发过：返回原版本 ${v.version_label}`
+      : `✓ 已签发生效版本 ${v.version_label}`);
+    state.draftRevision = revision; // 签发不改修订号
+    await refreshVersions(v.id);
+    await openVersion(v.id);
+  } catch (e) {
+    if (e.status === 422 && e.payload && e.payload.detail) {
+      const d = e.payload.detail;
+      renderBlockers(d.message || "校验未通过", d.blockers || []);
+    } else {
+      toast((e.status === 409 ? "签发被拒绝：" : "签发失败：") + e.message);
+    }
+  } finally {
+    state.versionBusy = false;
+    renderIssueBox();
+  }
+}
+
+function renderBlockers(message, blockers) {
+  // 复用版本侧栏展示拒绝原因；点击条目定位到当前草稿对应条款
+  els.versionList.innerHTML = "";
+  const card = document.createElement("div");
+  card.className = "version-blockers";
+  card.innerHTML =
+    `<div class="blocker-title">⛔ ${esc(message)}</div>`;
+  blockers.forEach((b) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `blocker-row ${b.kind}`;
+    row.innerHTML =
+      `<span class="chip-tag">${esc(b.tag || b.kind)}</span>` +
+      `<span class="chip-msg">${esc(b.message)}</span>`;
+    row.addEventListener("click", () => {
+      switchMode("refs");
+      locate(b.clause_id, b.target_id);
+    });
+    card.appendChild(row);
+  });
+  els.versionList.appendChild(card);
+  toast(message);
+}
+
+function fmtTime(ts) {
+  return new Date(ts * 1000).toLocaleString();
+}
+
+function renderVersionList(selectVersionId) {
+  if (!state.currentDraftId) {
+    els.versionList.innerHTML =
+      `<div class="issue-note">保存草稿后，这里会列出该草稿已签发、不可变的生效版本。</div>`;
+    return;
+  }
+  els.versionList.innerHTML = "";
+  if (!state.versions.length) {
+    els.versionList.innerHTML =
+      `<div class="issue-note">尚无生效版本。</div>`;
+    return;
+  }
+  state.versions.forEach((v) => {
+    const s = v.summary || {};
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "version-item" +
+      (state.currentVersion && state.currentVersion.id === v.id ? " active" : "");
+    const rew = s.clauses_rewritten || 0;
+    item.innerHTML =
+      `<span class="v-no">${esc(v.version_label)}</span>` +
+      `<span class="v-meta">${esc(fmtTime(v.created_at))}</span>` +
+      `<span class="v-meta">存活 ${s.clause_alive != null ? s.clause_alive : "?"} 条` +
+      ` · 重写引用 ${rew} 处 · 忽略术语 ${s.term_ignored != null ? s.term_ignored : 0} 项</span>`;
+    item.addEventListener("click", () => openVersion(v.id));
+    els.versionList.appendChild(item);
+  });
+}
+
+async function openVersion(id) {
+  try {
+    state.currentVersion = await api(`/api/versions/${id}`);
+  } catch (e) {
+    toast("读取版本失败：" + e.message);
+    return;
+  }
+  state.versionViewMode = "final";
+  els.viewerEmpty.classList.add("hidden");
+  els.viewer.classList.remove("hidden");
+  renderVersionViewer();
+  renderVersionList();
+}
+
+function setVersionViewMode(mode) {
+  state.versionViewMode = mode;
+  renderVersionViewer();
+}
+
+function renderVersionViewer() {
+  const v = state.currentVersion;
+  if (!v) return;
+  els.viewerTitle.textContent =
+    `${v.version_label} · ${v.title} · ${fmtTime(v.created_at)}（不可变）`;
+  for (const [m, el] of [["final", els.vtabFinal], ["original", els.vtabOriginal],
+                         ["terms", els.vtabTerms]]) {
+    el.classList.toggle("active", state.versionViewMode === m);
+  }
+  renderVersionSummary();
+  renderVersionContent();
+}
+
+function renderVersionSummary() {
+  const s = state.currentVersion.summary || {};
+  const stats = [
+    ["条款总数", s.clause_total],
+    ["存活条款", s.clause_alive],
+    ["已删除（固定）", s.clause_deleted],
+    ["引用总数", s.ref_total],
+    ["无法解析", s.ref_unparsable],
+    ["目标已删除", s.ref_deleted],
+    ["循环引用", s.ref_circular],
+    ["含重写条款", s.clauses_rewritten],
+    ["术语定义", s.term_definitions],
+    ["术语使用", s.term_usages],
+    ["忽略术语问题", s.term_ignored],
+  ];
+  els.viewerSummary.innerHTML = stats
+    .map(([k, val]) =>
+      `<span class="vs-item"><b>${val == null ? "-" : val}</b> ${esc(k)}</span>`)
+    .join("");
+}
+
+// 版本内定位：在版本正文中滚动并闪烁条款（cid 为签发时固定的原条款 id）
+function locateVersion(cid) {
+  if (!cid) return;
+  const node = els.versionView.querySelector(
+    `.clause-block[data-cid="${CSS.escape(cid)}"]`);
+  if (node) {
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    node.classList.remove("flash");
+    void node.offsetWidth;
+    node.classList.add("flash");
+  }
+}
+
+function renderVersionContent() {
+  const v = state.currentVersion;
+  const mode = state.versionViewMode;
+  els.versionView.innerHTML = "";
+  if (mode === "final") {
+    const a = v.analyze || {};
+    if (a.preamble) {
+      els.versionView.appendChild(
+        makeVersionTextBlock("前置说明", a.preamble, [], "preamble", 0, false));
+    }
+    (a.result || []).forEach((c) => {
+      els.versionView.appendChild(
+        makeVersionClauseBlock(c, "after", false));
+    });
+  } else if (mode === "original") {
+    const a = v.analyze || {};
+    if (a.preamble) {
+      els.versionView.appendChild(
+        makeVersionTextBlock("前置说明", a.preamble, [], "preamble", 0, false));
+    }
+    const deletedIds = new Set((a.deleted_clauses || []).map((d) => d.id));
+    (a.clauses || []).forEach((c) => {
+      els.versionView.appendChild(
+        makeVersionClauseBlock(c, "before", deletedIds.has(c.id)));
+    });
+  } else {
+    (v.terms?.blocks || []).forEach((b) => {
+      els.versionView.appendChild(makeVersionTermBlock(b, new Set(v.term_ignores || [])));
+    });
+  }
+}
+
+function makeVersionTextBlock(label, text, marks, cid, depth, isDeleted) {
+  const block = document.createElement("div");
+  block.className = "clause-block preamble-block";
+  block.dataset.cid = cid;
+  block.style.paddingLeft = (12 + Math.max(0, depth - 1) * 18) + "px";
+  if (label && cid === "preamble") {
+    const tag = document.createElement("span");
+    tag.className = "block-label";
+    tag.textContent = label + " ";
+    block.appendChild(tag);
+  }
+  if (isDeleted) {
+    const ribbon = document.createElement("span");
+    ribbon.className = "deleted-ribbon";
+    ribbon.textContent = "已删除";
+    block.appendChild(ribbon);
+  }
+  appendVersionMarks(block, text, marks);
+  return block;
+}
+
+function makeVersionClauseBlock(c, mode, isDeleted) {
+  const block = document.createElement("div");
+  block.className = "clause-block" + (isDeleted ? " deleted-clause" : "");
+  block.dataset.cid = c.id;
+  const depth = c.depth != null ? c.depth : (c.path || []).length;
+  block.style.paddingLeft = (12 + Math.max(0, depth - 1) * 18) + "px";
+  const label = document.createElement("span");
+  label.className = "block-label" + (mode === "after" ? " new" : "");
+  label.textContent = (mode === "after" ? c.new_label : c.label) + " ";
+  block.appendChild(label);
+  if (isDeleted) {
+    const ribbon = document.createElement("span");
+    ribbon.className = "deleted-ribbon";
+    ribbon.textContent = "已删除（签发时固定的删除状态）";
+    block.appendChild(ribbon);
+  }
+  const text = mode === "after" ? c.after_text : c.before_text;
+  appendVersionRefMarks(block, c, mode, text);
+  return block;
+}
+
+function appendVersionRefMarks(block, clause, mode, text) {
+  // 签发通过的版本中引用均为 ok；仍按 marks 重建以支持点击定位目标条款
+  const marks = clause.refs || [];
+  let cursor = 0;
+  marks.forEach((m) => {
+    if (m.start > cursor) block.appendChild(document.createTextNode(text.slice(cursor, m.start)));
+    const span = document.createElement("span");
+    span.className = `mark ${m.status}`;
+    span.textContent = mode === "before" ? m.text : m.new_text;
+    span.title = "引用改写：" + m.text + " → " + m.new_text +
+      "（点击定位目标条款）";
+    span.addEventListener("click", (e) => {
+      e.stopPropagation();
+      locateVersion(m.target_id || clause.id);
+    });
+    block.appendChild(span);
+    cursor = m.end;
+  });
+  if (cursor < text.length) block.appendChild(document.createTextNode(text.slice(cursor)));
+}
+
+function appendVersionMarks(block, text, marks) {
+  let cursor = 0;
+  marks.forEach((m) => {
+    if (m.start > cursor) block.appendChild(document.createTextNode(text.slice(cursor, m.start)));
+    const span = document.createElement("span");
+    span.className = `tmark ${m.kind} ${m.status}`;
+    span.textContent = text.slice(m.start, m.end);
+    block.appendChild(span);
+    cursor = m.end;
+  });
+  if (cursor < text.length) block.appendChild(document.createTextNode(text.slice(cursor)));
+}
+
+function makeVersionTermBlock(b, ignoreSet) {
+  const div = document.createElement("div");
+  div.className = "term-block clause-block" +
+    (b.kind === "preamble" ? " preamble-block" : "");
+  div.dataset.cid = b.id;
+  if (b.kind === "clause") {
+    div.style.paddingLeft = (12 + Math.max(0, b.depth - 1) * 18) + "px";
+    const label = document.createElement("span");
+    label.className = "block-label new";
+    // 术语审校存的是原编号标签（签发时固定）
+    label.textContent = b.label + " ";
+    div.appendChild(label);
+  }
+  let cursor = 0;
+  (b.marks || []).forEach((m) => {
+    if (m.start > cursor) div.appendChild(document.createTextNode(b.text.slice(cursor, m.start)));
+    const span = document.createElement("span");
+    span.className = `tmark ${m.kind} ${m.status}` +
+      (ignoreSet.has(m.occ_id) ? " ignored" : "");
+    span.textContent = b.text.slice(m.start, m.end);
+    // 签发通过的版本中术语均已确定绑定（或被忽略）；点击使用/定义标记
+    // 按 occ 前缀（u-/d- + 条款 id）定位到所在或对端条款
+    span.title = "签发时固定的术语绑定（点击定位条款）";
+    span.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const occ = (m.target_ids || [])[0] || m.occ_id;
+      const mt = /^[ud]-(c-[0-9-]+)-/.exec(occ);
+      if (mt) locateVersion(mt[1]);
+    });
+    div.appendChild(span);
+    cursor = m.end;
+  });
+  if (cursor < b.text.length) div.appendChild(document.createTextNode(b.text.slice(cursor)));
+  return div;
 }
 
 // ---------------------------------------------------------------- 事件绑定
@@ -1325,6 +1774,10 @@ els.btnExample.addEventListener("click", loadExample);
 els.btnSave.addEventListener("click", saveDraft);
 els.tabRefs.addEventListener("click", () => switchMode("refs"));
 els.tabTerms.addEventListener("click", () => switchMode("terms"));
+els.tabVersions.addEventListener("click", () => switchMode("versions"));
+els.vtabFinal.addEventListener("click", () => setVersionViewMode("final"));
+els.vtabOriginal.addEventListener("click", () => setVersionViewMode("original"));
+els.vtabTerms.addEventListener("click", () => setVersionViewMode("terms"));
 els.draftSelect.addEventListener("change", async (e) => {
   if (e.target.value) await loadDraft(Number(e.target.value));
 });
@@ -1332,6 +1785,8 @@ els.input.addEventListener("input", debounce(saveSession, 500));
 els.input.addEventListener("input", () => {
   // 正文变化：旧预演结果不得直接确认（预演签名含正文）
   if (state.previewResult) invalidatePreview();
+  // 生效版本签发区同步未保存状态
+  if (state.mode === "versions") renderIssueBox();
 });
 
 // 删除影响预演
